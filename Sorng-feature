@@ -161,3 +161,47 @@ class InventorySystem:
             raise ValueError("Minimum stock cannot be negative.")
         self.get_product(product_id).min_stock = value
         self.save()
+   # ---------- Stock In / Out ----------
+    def record_transaction(self, product_id, kind, quantity, supplier_id, username):
+        tx = StockTransaction(self.next_id(self.transactions, "tx_id"),
+                              product_id, kind, quantity, supplier_id,
+                              datetime.now().strftime("%Y-%m-%d %H:%M:%S"), username)
+        self.transactions.append(tx)
+
+    def stock_in(self, user, product_id, quantity, supplier_id):
+        self.check(user, "stock_in")
+        p = self.get_product(product_id)
+        if not p.active:
+            raise ValueError("This product is deactivated.")
+        if quantity <= 0:
+            raise ValueError("Quantity must be greater than zero.")
+        if not self.find_supplier(supplier_id):
+            raise ValueError("Supplier not found.")
+        p.quantity += quantity
+        self.record_transaction(p.product_id, "IN", quantity, supplier_id, user.username)
+        self.save()
+        return p
+
+    def stock_out(self, user, product_id, quantity):
+        self.check(user, "stock_out")
+        p = self.get_product(product_id)
+        if not p.active:
+            raise ValueError("This product is deactivated.")
+        if quantity <= 0:
+            raise ValueError("Quantity must be greater than zero.")
+        if quantity > p.quantity:
+            raise ValueError(f"Not enough stock. Available: {p.quantity}")
+        p.quantity -= quantity
+        self.record_transaction(p.product_id, "OUT", quantity, None, user.username)
+        self.save()
+        return p
+
+    def low_stock_products(self, user):
+        self.check(user, "low_stock")
+        return [p for p in self.products if p.active and p.is_low()]
+
+    def get_history(self, user):
+        if user.can("view_all_history"):
+            return self.transactions
+        self.check(user, "view_own_history")
+        return [t for t in self.transactions if t.username == user.username]
