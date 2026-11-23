@@ -49,3 +49,49 @@ class InventorySystem:
         }
         with open(DATA_FILE, "w") as f:
             json.dump(data, f, indent=4)
+# ---------- Helpers ----------
+    def check(self, user, action):
+        """Permission check - stops unauthorized users."""
+        if not user.can(action):
+            raise PermissionError(f"Access denied. {user.role} cannot do this.")
+
+    def login(self, username, password):
+        for u in self.users:
+            if u.username == username and u.password_hash == hash_password(password):
+                return u
+        return None
+
+    def find_category(self, cat_id):
+        for c in self.categories:
+            if c.cat_id == cat_id:
+                return c
+        return None
+
+    def find_supplier(self, supplier_id):
+        for s in self.suppliers:
+            if s.supplier_id == supplier_id:
+                return s
+        return None
+
+    def find_product(self, product_id):
+        for p in self.products:
+            if p.product_id == product_id.upper():
+                return p
+        return None
+
+    def get_product(self, product_id):
+        p = self.find_product(product_id)
+        if p is None:
+            raise ValueError("Product not found.")
+        return p
+
+    def category_name(self, cat_id):
+        c = self.find_category(cat_id)
+        return c.name if c else "-"
+
+    def supplier_name(self, supplier_id):
+        s = self.find_supplier(supplier_id)
+        return s.name if s else "-"
+
+    def next_id(self, items, attr):
+        return max([getattr(i, attr) for i in items], default=0) + 1
