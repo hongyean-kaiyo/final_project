@@ -1,0 +1,51 @@
+"""Business logic, rules, permission checks, JSON file saving"""
+
+import json
+from datetime import datetime
+from models import Category, Supplier, Product, StockTransaction
+from users import Admin, Staff, make_user, hash_password
+
+DATA_FILE = "inventory_data.json"
+
+
+class InventorySystem:
+    def __init__(self):
+        self.categories = []
+        self.suppliers = []
+        self.products = []
+        self.users = []
+        self.transactions = []
+        self.load()
+
+    # ---------- File handling ----------
+    def load(self):
+        try:
+            with open(DATA_FILE, "r") as f:
+                data = json.load(f)
+            self.categories = [Category(**c) for c in data["categories"]]
+            self.suppliers = [Supplier(**s) for s in data["suppliers"]]
+            self.products = [Product(**p) for p in data["products"]]
+            self.users = [make_user(u["username"], u["password_hash"], u["role"])
+                          for u in data["users"]]
+            self.transactions = [StockTransaction(**t) for t in data["transactions"]]
+        except FileNotFoundError:
+            self.create_defaults()
+        except (json.JSONDecodeError, KeyError, TypeError):
+            print("Data file is damaged. Starting with default data.")
+            self.create_defaults()
+
+    def create_defaults(self):
+        self.categories = [Category(1, "General")]
+        self.users = [Admin("admin", hash_password("admin123"))]
+        self.save()
+
+    def save(self):
+        data = {
+            "categories": [c.to_dict() for c in self.categories],
+            "suppliers": [s.to_dict() for s in self.suppliers],
+            "products": [p.to_dict() for p in self.products],
+            "users": [u.to_dict() for u in self.users],
+            "transactions": [t.to_dict() for t in self.transactions],
+        }
+        with open(DATA_FILE, "w") as f:
+            json.dump(data, f, indent=4)
