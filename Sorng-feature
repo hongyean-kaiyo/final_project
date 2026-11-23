@@ -95,3 +95,69 @@ class InventorySystem:
 
     def next_id(self, items, attr):
         return max([getattr(i, attr) for i in items], default=0) + 1
+    # ---------- Products ----------
+    def list_products(self, user):
+        self.check(user, "view_products")
+        can_see_all = user.can("manage_products")
+        return [p for p in self.products if p.active or can_see_all]
+
+    def search_products(self, user, keyword):
+        self.check(user, "view_products")
+        keyword = keyword.lower()
+        results = []
+        for p in self.list_products(user):
+            text = [p.product_id, p.name, self.category_name(p.category_id), p.shelf]
+            if any(keyword in t.lower() for t in text):
+                results.append(p)
+        return results
+
+    def add_product(self, user, product_id, name, category_id,
+                    price, quantity, shelf, min_stock):
+        self.check(user, "manage_products")
+        product_id = product_id.upper()
+        if product_id == "" or name == "":
+            raise ValueError("Product ID and name are required.")
+        if self.find_product(product_id):
+            raise ValueError("Product ID already exists.")
+        if not self.find_category(category_id):
+            raise ValueError("Every product must belong to a valid category.")
+        if min_stock < 0:
+            raise ValueError("Minimum stock cannot be negative.")
+        self.products.append(Product(product_id, name, category_id,
+                                     price, quantity, shelf, min_stock))
+        self.save()
+
+    def update_product(self, user, product_id, name=None, category_id=None,
+                       price=None, shelf=None):
+        self.check(user, "manage_products")
+        p = self.get_product(product_id)
+        if category_id is not None and not self.find_category(category_id):
+            raise ValueError("Category not found.")
+        if name:
+            p.name = name
+        if category_id is not None:
+            p.category_id = category_id
+        if price is not None:
+            p.price = price
+        if shelf:
+            p.shelf = shelf
+        self.save()
+
+    def delete_product(self, user, product_id):
+        self.check(user, "manage_products")
+        p = self.get_product(product_id)
+        has_history = any(t.product_id == p.product_id for t in self.transactions)
+        if has_history:
+            p.active = False          # keep history, only deactivate
+            message = "Product has transaction history, so it was DEACTIVATED."
+        else:
+            self.products.remove(p)
+            message = "Product deleted."
+        self.save()
+        return message
+    def set_min_stock(self, user, product_id, value):
+        self.check(user, "set_min_stock")
+        if value < 0:
+            raise ValueError("Minimum stock cannot be negative.")
+        self.get_product(product_id).min_stock = value
+        self.save()
