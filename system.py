@@ -1,11 +1,19 @@
-"""Business logic, rules, permission checks, JSON file saving"""
+"""Business logic, rules, permission checks, JSON file saving."""
 
+import hashlib
 import json
 from datetime import datetime
+
 from models import Category, Supplier, Product, StockTransaction
-from users import Admin, Staff, make_user, hash_password
+from users import User
+from ui import ask
 
 DATA_FILE = "inventory_data.json"
+
+
+def hash_password(password):
+    """users.py has no hashing, so system.py does it."""
+    return hashlib.sha256(password.encode()).hexdigest()
 
 
 class InventorySystem:
@@ -25,18 +33,22 @@ class InventorySystem:
             self.categories = [Category(**c) for c in data["categories"]]
             self.suppliers = [Supplier(**s) for s in data["suppliers"]]
             self.products = [Product(**p) for p in data["products"]]
-            self.users = [make_user(u["username"], u["password_hash"], u["role"])
+            # User.password stores the HASH (never the plain password)
+            self.users = [User(u["username"], u["password_hash"], u["role"])
                           for u in data["users"]]
             self.transactions = [StockTransaction(**t) for t in data["transactions"]]
         except FileNotFoundError:
             self.create_defaults()
-        except (json.JSONDecodeError, KeyError, TypeError):
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
             print("Data file is damaged. Starting with default data.")
             self.create_defaults()
 
     def create_defaults(self):
         self.categories = [Category(1, "General")]
-        self.users = [Admin("admin", hash_password("admin123"))]
+        self.suppliers = []
+        self.products = []
+        self.transactions = []
+        self.users = [User("admin", hash_password("admin123"), "admin")]
         self.save()
 
     def save(self):
@@ -44,12 +56,14 @@ class InventorySystem:
             "categories": [c.to_dict() for c in self.categories],
             "suppliers": [s.to_dict() for s in self.suppliers],
             "products": [p.to_dict() for p in self.products],
-            "users": [u.to_dict() for u in self.users],
+            "users": [{"username": u.username, "password_hash": u.password,
+                       "role": u.role} for u in self.users],
             "transactions": [t.to_dict() for t in self.transactions],
         }
         with open(DATA_FILE, "w") as f:
             json.dump(data, f, indent=4)
-# ---------- Helpers ----------
+
+    # ---------- Helpers ----------
     def check(self, user, action):
         """Permission check - stops unauthorized users."""
         if not user.can(action):
@@ -57,7 +71,7 @@ class InventorySystem:
 
     def login(self, username, password):
         for u in self.users:
-            if u.username == username and u.password_hash == hash_password(password):
+            if u.username == username and u.password == hash_password(password):
                 return u
         return None
 
@@ -95,14 +109,15 @@ class InventorySystem:
 
     def next_id(self, items, attr):
         return max([getattr(i, attr) for i in items], default=0) + 1
-    # ---------- Products ----------
+
+    # ---------- Products (logic) ----------
     def list_products(self, user):
         self.check(user, "view_products")
-        can_see_all = user.can("manage_products")
+        can_see_all = user.can("add_product")      # admins also see deactivated products
         return [p for p in self.products if p.active or can_see_all]
 
     def search_products(self, user, keyword):
-        self.check(user, "view_products")
+        self.check(user, "search_product")
         keyword = keyword.lower()
         results = []
         for p in self.list_products(user):
@@ -111,9 +126,9 @@ class InventorySystem:
                 results.append(p)
         return results
 
-    def add_product(self, user, product_id, name, category_id,
-                    price, quantity, shelf, min_stock):
-        self.check(user, "manage_products")
+    def create_product(self, user, product_id, name, category_id,
+                       price, quantity, shelf, min_stock):
+        self.check(user, "add_product")
         product_id = product_id.upper()
         if product_id == "" or name == "":
             raise ValueError("Product ID and name are required.")
@@ -123,6 +138,7 @@ class InventorySystem:
             raise ValueError("Every product must belong to a valid category.")
         if min_stock < 0:
             raise ValueError("Minimum stock cannot be negative.")
+        # Product's setters check price > 0 and quantity >= 0
         self.products.append(Product(product_id, name, category_id,
                                      price, quantity, shelf, min_stock))
         self.save()
@@ -155,13 +171,15 @@ class InventorySystem:
             message = "Product deleted."
         self.save()
         return message
+
     def set_min_stock(self, user, product_id, value):
         self.check(user, "set_min_stock")
         if value < 0:
             raise ValueError("Minimum stock cannot be negative.")
         self.get_product(product_id).min_stock = value
         self.save()
-   # ---------- Stock In / Out ----------
+
+    # ---------- Stock In / Out ----------
     def record_transaction(self, product_id, kind, quantity, supplier_id, username):
         tx = StockTransaction(self.next_id(self.transactions, "tx_id"),
                               product_id, kind, quantity, supplier_id,
