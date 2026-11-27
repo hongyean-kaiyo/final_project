@@ -223,3 +223,69 @@ class InventorySystem:
             return self.transactions
         self.check(user, "view_own_history")
         return [t for t in self.transactions if t.username == user.username]
+
+    # ---------- Screens used by ui.py ----------
+    # ui.py calls these with only (user), so they ask the questions and print
+    # the results themselves. Errors are caught here so the menu never crashes.
+    
+    def print_products(self, products):
+        if not products:
+            print("No products found.")
+            return
+        print(f"\n{'ID':<8}{'Name':<20}{'Category':<14}{'Price':>9}"
+              f"{'Qty':>6}{'Min':>5}  {'Shelf':<8}Status")
+        print("-" * 80)
+        for p in products:
+            if not p.active:
+                status = "INACTIVE"
+            elif p.is_low():
+                status = "LOW"
+            else:
+                status = "OK"
+            print(f"{p.product_id:<8}{p.name:<20}{self.category_name(p.category_id):<14}"
+                  f"{p.price:>9.2f}{p.quantity:>6}{p.min_stock:>5}  {p.shelf:<8}{status}")
+
+    def show_products(self, user):
+        try:
+            self.print_products(self.list_products(user))
+        except PermissionError as e:
+            print(e)
+
+    def search_product(self, user):
+        try:
+            self.check(user, "search_product")      # check before asking anything
+            keyword = ask("Search keyword (ID, name, category or shelf): ")
+            self.print_products(self.search_products(user, keyword))
+        except PermissionError as e:
+            print(e)
+
+    def to_number(self, text, kind):
+        try:
+            return kind(text)
+        except ValueError:
+            raise ValueError(f"'{text}' is not a valid number.")
+
+    def ask_number(self, message, kind):
+        return self.to_number(ask(message), kind)
+
+    def add_product(self, user):
+        try:
+            self.check(user, "add_product")
+            print("\n--- Add Product ---")
+            print("Categories:", ", ".join(f"{c.cat_id}={c.name}" for c in self.categories))
+            product_id = ask("Product ID: ")
+            name = ask("Name: ")
+            category_id = self.ask_number("Category ID: ", int)
+            price = self.ask_number("Price: ", float)
+            quantity = self.ask_number("Quantity: ", int)
+            shelf = ask("Shelf: ")
+            min_stock_text = ask("Minimum stock (default 5): ")
+            min_stock = self.to_number(min_stock_text, int) if min_stock_text else 5
+            self.create_product(user, product_id, name, category_id,
+                                price, quantity, shelf, min_stock)
+            print("Product added.")
+        except PermissionError as e:
+            print(e)
+        except ValueError as e:
+            # also catches int()/float() conversion errors
+            print(f"Could not add product: {e}")
